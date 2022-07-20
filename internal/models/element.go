@@ -47,3 +47,16 @@ func (e *Element) GetFullyQualifiedExpression(expression string, moduleName stri
 
 	return expression, err
 }
+
+func (e *Element) HasFilteredTag(tagFilter []string) bool {
+	filterElement := false
+	for _, t := range e.Tags {
+		for _, f := range tagFilter {
+			if t == f {
+				filterElement = true
+				break
+			}
+		}
+	}
+	return filterElement
+}

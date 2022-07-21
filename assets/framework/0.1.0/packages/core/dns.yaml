@@ -1,0 +1,15 @@
+name: dns
+tags:
+  - core
+sections:
+  - name: trafficmanagement.dns.addressrecords
+    elements:
+      - name: DUMMY
+        fields:
+          - id: name
+            data: dummy-v0.1.0.corelogic.local
+          - id: address
+            data: 169.254.0.1
+        expressions:
+          install: add dns addRec <<name>> <<address>> -TTL 300
+          uninstall: rm server <<name>>

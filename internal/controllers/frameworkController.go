@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"github.com/jantytgat/corelogic/internal/models"
 	"log"
 	"regexp"
@@ -10,7 +11,8 @@ import (
 )
 
 type FrameworkController struct {
-	Framework models.Framework
+	Framework map[string]models.Framework
+	Release   models.Release
 
 	Expressions     map[string]string
 	Fields          map[string]string
@@ -19,31 +21,35 @@ type FrameworkController struct {
 	SectionData map[string][]string
 }
 
-func (c *FrameworkController) GetOutput(kind string, tagFilter []string) ([]string, error) {
+func (c *FrameworkController) GetOutput(version string, kind string, tagFilter []string) ([]string, error) {
 	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " get " + kind + " output"))
 
 	var output []string
 
 	var err error
-	c.Expressions, err = c.Framework.GetExpressions(kind, tagFilter)
+	fmt.Printf("Get output for %s\n", version)
+	framework := c.Framework[version]
+	fmt.Println(framework.Release)
+	fmt.Println(len(framework.Packages))
+	c.Expressions, err = framework.GetExpressions(kind, tagFilter)
 	if err != nil {
 		log.Fatal(err)
 		return output, err
 	}
 
-	c.Fields, err = c.collectFieldsFromFramework()
+	c.Fields, err = c.collectFieldsFromFramework(version)
 	if err != nil {
 		log.Fatal(err)
 		return output, err
 	}
 
 	c.setSortedFieldKeys(c.Fields)
-	c.unfoldExpressions()
-	c.Framework.SortPrefixes(c.Framework.Prefixes)
+	c.unfoldExpressions(version)
+	framework.SortPrefixes(c.Framework[version].Prefixes)
 	c.SectionData = make(map[string][]string)
-	c.collectExpressionsPerSection()
+	c.collectExpressionsPerSection(version)
 
-	for _, p := range c.Framework.Prefixes {
+	for _, p := range c.Framework[version].Prefixes {
 		output = append(output, "### "+p.Section)
 		output = append(output, c.SectionData[p.Section]...)
 		output = append(output, "##########################")
@@ -52,19 +58,22 @@ func (c *FrameworkController) GetOutput(kind string, tagFilter []string) ([]stri
 	return output, err
 }
 
-func (c *FrameworkController) collectFieldsFromFramework() (map[string]string, error) {
+func (c *FrameworkController) collectFieldsFromFramework(version string) (map[string]string, error) {
 	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " get fields"))
 
-	fields, err := c.Framework.GetFields()
+	framework := c.Framework[version]
+	fields, err := framework.GetFields()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	return c.unfoldFields(fields), err
+	return c.unfoldFields(version, fields), err
 }
 
-func (c *FrameworkController) unfoldFields(fields map[string]string) map[string]string {
+func (c *FrameworkController) unfoldFields(version string, fields map[string]string) map[string]string {
 	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " unfold fields"))
+
+	framework := c.Framework[version]
 
 	re := regexp.MustCompile(`<<[a-zA-Z0-9_.]*/[a-zA-Z0-9_]*>>`)
 	for key := range fields {
@@ -82,12 +91,12 @@ func (c *FrameworkController) unfoldFields(fields map[string]string) map[string]
 			}
 		}
 
-		for k := range c.Framework.GetPrefixMap() {
+		for k := range framework.GetPrefixMap() {
 			if !strings.Contains(fields[key], "<<") {
 				break
 			}
 
-			fields[key] = strings.ReplaceAll(fields[key], "<<"+k+">>", c.Framework.GetPrefixWithVersion(k))
+			fields[key] = strings.ReplaceAll(fields[key], "<<"+k+">>", framework.GetPrefixWithVersion(k))
 		}
 	}
 
@@ -106,7 +115,7 @@ func (c *FrameworkController) setSortedFieldKeys(fields map[string]string) {
 	c.SortedFieldKeys = fieldKeys
 }
 
-func (c *FrameworkController) unfoldExpressions() {
+func (c *FrameworkController) unfoldExpressions(version string) {
 	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " unfold expressions"))
 
 	wg := &sync.WaitGroup{}
@@ -116,7 +125,7 @@ func (c *FrameworkController) unfoldExpressions() {
 	for k := range c.Expressions {
 		wg.Add(1)
 		count++
-		go c.unfoldExpressionHandler(k, ch, wg)
+		go c.unfoldExpressionHandler(version, k, ch, wg)
 	}
 	wg.Add(1)
 	go c.unfoldedExpressionCollector(count, ch, wg)
@@ -125,7 +134,7 @@ func (c *FrameworkController) unfoldExpressions() {
 	close(ch)
 }
 
-func (c *FrameworkController) unfoldExpressionHandler(elementName string, ch chan<- models.UnfoldedExpressionData, wg *sync.WaitGroup) {
+func (c *FrameworkController) unfoldExpressionHandler(version string, elementName string, ch chan<- models.UnfoldedExpressionData, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	output := models.UnfoldedExpressionData{
@@ -133,14 +142,14 @@ func (c *FrameworkController) unfoldExpressionHandler(elementName string, ch cha
 		Value: c.Expressions[elementName],
 	}
 
-	output.Value = c.replaceDataInExpression(output.Value)
+	output.Value = c.replaceDataInExpression(version, output.Value)
 	ch <- output
 }
 
-func (c *FrameworkController) replaceDataInExpression(expression string) string {
+func (c *FrameworkController) replaceDataInExpression(version string, expression string) string {
 	if expression != "" {
 		expression = c.replaceFieldsInExpression(expression)
-		expression = c.replacePrefixesInExpression(expression)
+		expression = c.replacePrefixesInExpression(version, expression)
 		expression = strings.TrimSuffix(expression, "\n")
 	}
 
@@ -167,13 +176,15 @@ func (c *FrameworkController) replaceFieldsInExpression(expression string) strin
 	return expression
 }
 
-func (c *FrameworkController) replacePrefixesInExpression(expression string) string {
+func (c *FrameworkController) replacePrefixesInExpression(version string, expression string) string {
+	framework := c.Framework[version]
+
 	// Replace prefixes in expressions
-	for p := range c.Framework.GetPrefixMap() {
+	for p := range framework.GetPrefixMap() {
 		if !strings.Contains(expression, "<<") {
 			break
 		}
-		expression = strings.ReplaceAll(expression, "<<"+p+">>", c.Framework.GetPrefixWithVersion(p))
+		expression = strings.ReplaceAll(expression, "<<"+p+">>", framework.GetPrefixWithVersion(p))
 	}
 
 	return expression
@@ -201,14 +212,14 @@ func (c *FrameworkController) unfoldedExpressionCollector(count int, ch <-chan m
 	c.Expressions = expressions
 }
 
-func (c *FrameworkController) collectExpressionsPerSection() {
+func (c *FrameworkController) collectExpressionsPerSection(version string) {
 	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " collect expressions per section"))
 
 	wg := &sync.WaitGroup{}
 	globalChannel := make(chan models.SectionData)
 
 	count := 0
-	for _, p := range c.Framework.Prefixes {
+	for _, p := range c.Framework[version].Prefixes {
 		sectionChannel := make(chan string)
 
 		wg.Add(1)

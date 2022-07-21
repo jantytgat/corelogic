@@ -11,8 +11,10 @@ import (
 )
 
 type FrameworkController struct {
-	Framework map[string]models.Framework
-	Release   models.Release
+	Frameworks map[string]models.Framework
+
+	Release models.Release
+	//SortedOlderVersions []string
 
 	Expressions     map[string]string
 	Fields          map[string]string
@@ -21,16 +23,55 @@ type FrameworkController struct {
 	SectionData map[string][]string
 }
 
+func (c *FrameworkController) Parse() error {
+	fmt.Printf("Parsing %s\n", c.Release.GetSemanticVersion())
+	framework := c.Frameworks[c.Release.GetSemanticVersion()]
+	installExpressions, err := framework.GetExpressions("install", nil)
+	if err != nil {
+		return err
+	}
+	uninstallExpressions, err := framework.GetExpressions("uninstall", nil)
+	if err != nil {
+		return err
+	}
+	fields, err := c.collectFieldsFromFramework(c.Release.GetSemanticVersion())
+	if err != nil {
+		return err
+	}
+
+	for k, v := range installExpressions {
+		fmt.Println(k, "\t", v)
+	}
+	for k, v := range uninstallExpressions {
+		fmt.Println(k, "\t", v)
+	}
+	for k, v := range fields {
+		fmt.Println(k, "\t", v)
+	}
+
+	return nil
+}
+
+func (c *FrameworkController) GetSortedOlderVersions() []string {
+	keys := make([]string, 0, len(c.Frameworks))
+	for k := range c.Frameworks {
+		keys = append(keys, k)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+
+	return keys
+}
+
 func (c *FrameworkController) GetOutput(version string, kind string, tagFilter []string) ([]string, error) {
-	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " get " + kind + " output"))
+	//defer general.FinishTimer(general.StartTimer("Frameworks " + f.Release.GetVersionAsString() + " get " + kind + " output"))
 
 	var output []string
 
 	var err error
-	fmt.Printf("Get output for %s\n", version)
-	framework := c.Framework[version]
-	fmt.Println(framework.Release)
-	fmt.Println(len(framework.Packages))
+	log.Printf("Get output for %s\n", version)
+	framework := c.Frameworks[version]
+	log.Println(framework.Release)
+	log.Println(len(framework.Packages))
 	c.Expressions, err = framework.GetExpressions(kind, tagFilter)
 	if err != nil {
 		log.Fatal(err)
@@ -45,11 +86,11 @@ func (c *FrameworkController) GetOutput(version string, kind string, tagFilter [
 
 	c.setSortedFieldKeys(c.Fields)
 	c.unfoldExpressions(version)
-	framework.SortPrefixes(c.Framework[version].Prefixes)
+	framework.SortPrefixes(c.Frameworks[version].Prefixes)
 	c.SectionData = make(map[string][]string)
 	c.collectExpressionsPerSection(version)
 
-	for _, p := range c.Framework[version].Prefixes {
+	for _, p := range c.Frameworks[version].Prefixes {
 		output = append(output, "### "+p.Section)
 		output = append(output, c.SectionData[p.Section]...)
 		output = append(output, "##########################")
@@ -59,9 +100,9 @@ func (c *FrameworkController) GetOutput(version string, kind string, tagFilter [
 }
 
 func (c *FrameworkController) collectFieldsFromFramework(version string) (map[string]string, error) {
-	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " get fields"))
+	//defer general.FinishTimer(general.StartTimer("Frameworks " + f.Release.GetVersionAsString() + " get fields"))
 
-	framework := c.Framework[version]
+	framework := c.Frameworks[version]
 	fields, err := framework.GetFields()
 	if err != nil {
 		log.Fatal(err)
@@ -71,9 +112,9 @@ func (c *FrameworkController) collectFieldsFromFramework(version string) (map[st
 }
 
 func (c *FrameworkController) unfoldFields(version string, fields map[string]string) map[string]string {
-	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " unfold fields"))
+	//defer general.FinishTimer(general.StartTimer("Frameworks " + f.Release.GetVersionAsString() + " unfold fields"))
 
-	framework := c.Framework[version]
+	//framework := c.Frameworks[version]
 
 	re := regexp.MustCompile(`<<[a-zA-Z0-9_.]*/[a-zA-Z0-9_]*>>`)
 	for key := range fields {
@@ -91,20 +132,20 @@ func (c *FrameworkController) unfoldFields(version string, fields map[string]str
 			}
 		}
 
-		for k := range framework.GetPrefixMap() {
-			if !strings.Contains(fields[key], "<<") {
-				break
-			}
-
-			fields[key] = strings.ReplaceAll(fields[key], "<<"+k+">>", framework.GetPrefixWithVersion(k))
-		}
+		//for k := range framework.GetPrefixMap() {
+		//	if !strings.Contains(fields[key], "<<") {
+		//		break
+		//	}
+		//
+		//	fields[key] = strings.ReplaceAll(fields[key], "<<"+k+">>", framework.GetPrefixWithVersion(k))
+		//}
 	}
 
 	return fields
 }
 
 func (c *FrameworkController) setSortedFieldKeys(fields map[string]string) {
-	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " set sorted field keys"))
+	//defer general.FinishTimer(general.StartTimer("Frameworks " + f.Release.GetVersionAsString() + " set sorted field keys"))
 
 	fieldKeys := make([]string, 0, len(fields))
 	for f := range fields {
@@ -116,7 +157,7 @@ func (c *FrameworkController) setSortedFieldKeys(fields map[string]string) {
 }
 
 func (c *FrameworkController) unfoldExpressions(version string) {
-	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " unfold expressions"))
+	//defer general.FinishTimer(general.StartTimer("Frameworks " + f.Release.GetVersionAsString() + " unfold expressions"))
 
 	wg := &sync.WaitGroup{}
 	ch := make(chan models.UnfoldedExpressionData)
@@ -177,7 +218,7 @@ func (c *FrameworkController) replaceFieldsInExpression(expression string) strin
 }
 
 func (c *FrameworkController) replacePrefixesInExpression(version string, expression string) string {
-	framework := c.Framework[version]
+	framework := c.Frameworks[version]
 
 	// Replace prefixes in expressions
 	for p := range framework.GetPrefixMap() {
@@ -213,13 +254,13 @@ func (c *FrameworkController) unfoldedExpressionCollector(count int, ch <-chan m
 }
 
 func (c *FrameworkController) collectExpressionsPerSection(version string) {
-	//defer general.FinishTimer(general.StartTimer("Framework " + f.Release.GetVersionAsString() + " collect expressions per section"))
+	//defer general.FinishTimer(general.StartTimer("Frameworks " + f.Release.GetVersionAsString() + " collect expressions per section"))
 
 	wg := &sync.WaitGroup{}
 	globalChannel := make(chan models.SectionData)
 
 	count := 0
-	for _, p := range c.Framework[version].Prefixes {
+	for _, p := range c.Frameworks[version].Prefixes {
 		sectionChannel := make(chan string)
 
 		wg.Add(1)

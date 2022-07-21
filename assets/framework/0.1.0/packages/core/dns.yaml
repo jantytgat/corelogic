@@ -12,4 +12,4 @@ sections:
             data: 169.254.0.1
         expressions:
           install: add dns addRec <<name>> <<address>> -TTL 300
-          uninstall: rm server <<name>>
+          uninstall: rm dns addRec <<name>>

@@ -15,42 +15,75 @@ type YamlController struct {
 	Assets embed.FS
 }
 
+func (c *YamlController) ListAvailableVersions() ([]string, error) {
+	var output []string
+
+	dirEntries, err := c.Assets.ReadDir("assets/framework")
+	if err != nil {
+		log.Fatal(err)
+		return output, err
+	}
+
+	for _, dirEntry := range dirEntries {
+		output = append(output, dirEntry.Name())
+	}
+	return output, nil
+}
+
 func (c *YamlController) Load(version string) (FrameworkController, error) {
 	var frameworkController FrameworkController
 	var err error
 	release, err := parseVersion(strings.Split(version, "."))
-	fmt.Println(release)
+	log.Printf("Release %v\n", release)
 
 	frameworkController.Release = release
-	frameworkController.Framework, err = c.LoadPreviousVersions(release, c.Assets)
+
+	releases, err := c.ListPreviousVersionsForMajorRelease(release)
+	if err != nil {
+		return frameworkController, err
+	}
+
+	frameworkController.Frameworks, err = c.LoadPreviousVersions(releases)
 	return frameworkController, err
 }
 
-func (c *YamlController) LoadPreviousVersions(release models.Release, fs embed.FS) (map[string]models.Framework, error) {
-	output := make(map[string]models.Framework)
-	var err error
-	for major := 0; major <= release.Major; major++ {
-		for minor := 0; minor <= release.Minor; minor++ {
-			for patch := 0; patch <= release.Patch; patch++ {
-				versionNumbers := []string{strconv.Itoa(major), strconv.Itoa(minor), strconv.Itoa(patch)}
-				currentVersion := strings.Join(versionNumbers, ".")
+func (c *YamlController) ListPreviousVersionsForMajorRelease(release models.Release) ([]models.Release, error) {
+	var output []models.Release
 
-				_, err = c.Assets.ReadDir("assets/framework/" + currentVersion)
-				if err != nil {
-					fmt.Printf("Version %s does not exist\n", currentVersion)
-					continue
-				}
+	dirEntries, err := c.Assets.ReadDir("assets/framework")
+	if err != nil {
+		log.Fatal(err)
+		return output, err
+	}
 
-				currentFramework, err := c.LoadVersion(currentVersion)
-				if err != nil {
-					return output, err
-				}
-				output[currentVersion] = currentFramework
-			}
+	for _, dirEntry := range dirEntries {
+		dirName := dirEntry.Name()
+		var currentRelease, loopErr = parseVersion(strings.Split(dirName, "."))
+		if loopErr != nil {
+			return output, loopErr
+		}
+
+		if currentRelease.Major == release.Major && strings.Compare(currentRelease.GetSemanticVersion(), release.GetSemanticVersion()) <= 0 {
+			log.Printf("Adding release %s to list of previous versions for %s", currentRelease.GetSemanticVersion(), release.GetSemanticVersion())
+			output = append(output, currentRelease)
 		}
 	}
 
-	return output, err
+	return output, nil
+}
+
+func (c *YamlController) LoadPreviousVersions(releases []models.Release) (map[string]models.Framework, error) {
+	output := make(map[string]models.Framework)
+
+	for _, r := range releases {
+		currentFramework, loadErr := c.LoadVersion(r.GetSemanticVersion())
+		if loadErr != nil {
+			return output, loadErr
+		}
+		output[r.GetSemanticVersion()] = currentFramework
+	}
+
+	return output, nil
 }
 
 func parseVersion(version []string) (models.Release, error) {
@@ -71,15 +104,27 @@ func parseVersion(version []string) (models.Release, error) {
 
 	major, err = strconv.Atoi(version[0])
 	if err != nil {
-		major = 0
+		return models.Release{
+			Major: major,
+			Minor: minor,
+			Patch: patch,
+		}, err
 	}
 	minor, err = strconv.Atoi(version[1])
 	if err != nil {
-		minor = 0
+		return models.Release{
+			Major: major,
+			Minor: minor,
+			Patch: patch,
+		}, err
 	}
 	patch, err = strconv.Atoi(version[2])
 	if err != nil {
-		patch = 0
+		return models.Release{
+			Major: major,
+			Minor: minor,
+			Patch: patch,
+		}, err
 	}
 
 	return models.Release{
@@ -92,21 +137,13 @@ func parseVersion(version []string) (models.Release, error) {
 
 func (c *YamlController) LoadVersion(version string) (models.Framework, error) {
 	//defer general.FinishTimer(general.StartTimer("Loading framework " + version))
-	fmt.Printf("Loading version %s\n", version)
+	log.Printf("Loading version %s\n", version)
 	framework := models.Framework{}
 	rootDir := "assets/framework/" + version
 	var source []byte
 	var err error
 
-	//fs.WalkDir(c.Assets, ".", func(path string, d fs.DirEntry, err error) error {
-	//	if err != nil {
-	//		log.Fatal(err)
-	//	}
-	//	fmt.Println(path)
-	//	return nil
-	//})
-
-	fmt.Printf("Reading framework file at %s\n", rootDir+"/framework.yaml")
+	//log.Printf("Reading framework file at %s\n", rootDir+"/framework.yaml")
 	source, err = c.Assets.ReadFile(rootDir + "/framework.yaml")
 	if err != nil {
 		fmt.Println(source)

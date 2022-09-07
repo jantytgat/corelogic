@@ -21,7 +21,7 @@ func main() {
 	for _, v := range versions {
 		fmt.Println(v)
 	}
-	frameworkController, err := yamlController.Load("0.1.1")
+	frameworkController, err := yamlController.Load("0.1.8")
 	if err != nil {
 		log.Fatalln(err)
 	}

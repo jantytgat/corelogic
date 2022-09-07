@@ -1,4 +1,5 @@
 build:
+	sh scripts/generate-assets.sh
 	sh scripts/build.sh
 
 clean:

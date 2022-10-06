@@ -27,11 +27,11 @@ func main() {
 	}
 	fmt.Println("Get Output:")
 	frameworkController.Parse()
-	//output1, err := frameworkController.GetOutput("0.1.0", "install", []string{})
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//for _, line := range output1 {
-	//	fmt.Println(line)
-	//}
+	output1, err := frameworkController.GetOutput("0.1.8", "install", []string{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, line := range output1 {
+		fmt.Println(line)
+	}
 }

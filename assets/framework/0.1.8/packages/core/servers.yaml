@@ -1,0 +1,15 @@
+name: servers
+tags:
+  - core
+sections:
+  - name: trafficmanagement.loadbalancing.servers
+    elements:
+      - name: DUMMY
+        fields:
+          - id: name
+            data: <<prefix>>_DUMMY
+          - id: address
+            data: <<core.dns.trafficmanagement.dns.addressrecords.DUMMY/name>>
+        expressions:
+          install: add server <<name>> <<address>>
+          uninstall: rm server <<name>>
